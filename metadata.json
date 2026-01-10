@@ -1,5 +1,5 @@
 {
-  "name": "Bicho de Pelo - Emissor NFC-e PB",
-  "description": "Sistema completo para Petshops emitirem cupons fiscais (NFC-e) no estado da Paraíba com suporte a certificado A1.",
+  "name": "Bicho de Pelo - Emissor Fiscal Campina Grande",
+  "description": "Sistema exclusivo de emissão de NFC-e para o Petshop Bicho de Pelo, localizado em Campina Grande - PB.",
   "requestFramePermissions": []
 }
