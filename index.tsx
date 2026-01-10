@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -29,6 +29,8 @@ interface Coupon {
   date: string;
   items: SaleItem[];
   total: number;
+  amountReceived: number;
+  change: number;
   protocol?: string;
   chNFe?: string;
   qrCode?: string;
@@ -52,21 +54,20 @@ const MOCK_PRODUCTS: Product[] = [
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
-    const saved = localStorage.getItem('bicho_pelo_v12_coupons');
+    const saved = localStorage.getItem('bicho_pelo_v15_coupons');
     return saved ? JSON.parse(saved) : [];
   });
   const [certificate, setCertificate] = useState(() => {
-    const saved = localStorage.getItem('bicho_pelo_v12_cert');
+    const saved = localStorage.getItem('bicho_pelo_v15_cert');
     return saved ? JSON.parse(saved) : { isLoaded: false };
   });
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null);
 
-  useEffect(() => localStorage.setItem('bicho_pelo_v12_coupons', JSON.stringify(coupons)), [coupons]);
-  useEffect(() => localStorage.setItem('bicho_pelo_v12_cert', JSON.stringify(certificate)), [certificate]);
+  useEffect(() => localStorage.setItem('bicho_pelo_v15_coupons', JSON.stringify(coupons)), [coupons]);
+  useEffect(() => localStorage.setItem('bicho_pelo_v15_cert', JSON.stringify(certificate)), [certificate]);
 
-  const handleEmit = async (items: SaleItem[], total: number) => {
-    // FIX: Always use process.env.API_KEY directly when initializing.
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const handleEmit = async (items: SaleItem[], total: number, received: number) => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     let fiscal;
     try {
       const response = await ai.models.generateContent({
@@ -84,9 +85,9 @@ const App: React.FC = () => {
           }
         }
       });
-      // FIX: Access response.text directly (it's a property).
       fiscal = JSON.parse(response.text || '{}');
     } catch (e) {
+      console.error("Falha ao comunicar com SEFAZ, gerando offline...", e);
       fiscal = { nProt: "125" + Date.now(), chNFe: "25" + Date.now().toString().padEnd(42, '0') };
     }
 
@@ -97,6 +98,8 @@ const App: React.FC = () => {
       date: new Date().toISOString(),
       items: [...items],
       total,
+      amountReceived: received,
+      change: received - total,
       protocol: fiscal.nProt,
       chNFe: fiscal.chNFe,
       qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://www.sefaz.pb.gov.br/nfce/consulta?chNFe=${fiscal.chNFe}`
@@ -108,8 +111,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar - no-print esconde na impressora */}
+    <div className="flex min-h-screen bg-slate-50">
       <aside className="w-72 bg-slate-900 text-white flex flex-col fixed h-full z-10 no-print">
         <div className="p-8">
           <div className="flex items-center gap-3 mb-10">
@@ -142,14 +144,13 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 ml-72 p-10 bg-slate-50 min-h-screen no-print">
         {view === AppView.DASHBOARD && (
           <div className="max-w-5xl mx-auto space-y-10">
             <div className="flex justify-between items-end">
               <div>
-                <h2 className="text-3xl font-black text-slate-800">Frente de Caixa</h2>
-                <p className="text-slate-500 font-medium">Bicho de Pelo - Campina Grande, PB</p>
+                <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Caixa Aberto</h2>
+                <p className="text-slate-500 font-medium">Histórico de vendas de hoje</p>
               </div>
               <button onClick={() => setView(AppView.EMITIR)} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95">Nova Venda</button>
             </div>
@@ -170,7 +171,7 @@ const App: React.FC = () => {
                       <td className="px-8 py-5 text-sm font-bold text-slate-700">#{c.number}</td>
                       <td className="px-8 py-5 text-xs text-slate-500">{new Date(c.date).toLocaleString('pt-BR')}</td>
                       <td className="px-8 py-5 text-right font-black text-slate-900">R$ {c.total.toFixed(2)}</td>
-                      <td className="px-8 py-5 text-right"><button onClick={() => setSelectedCoupon(c)} className="text-indigo-600 font-bold text-xs uppercase px-4 py-2 hover:bg-indigo-50 rounded-lg">Ver Cupom</button></td>
+                      <td className="px-8 py-5 text-right"><button onClick={() => setSelectedCoupon(c)} className="text-indigo-600 font-bold text-xs uppercase px-4 py-2 hover:bg-indigo-50 rounded-lg">Ver Detalhes</button></td>
                     </tr>
                   ))}
                   {coupons.length === 0 && <tr><td colSpan={4} className="p-20 text-center text-slate-300 italic">Nenhum cupom emitido hoje.</td></tr>}
@@ -186,8 +187,8 @@ const App: React.FC = () => {
 
         {view === AppView.CERTIFICADO && (
           <div className="max-w-xl mx-auto bg-white p-16 rounded-[4rem] border border-slate-200 text-center mt-10 shadow-sm">
-            <h3 className="text-2xl font-black text-slate-800 mb-2">Configurar A1</h3>
-            <p className="text-slate-500 mb-10">Obrigatório para emissão de cupons junto à SEFAZ-PB.</p>
+            <h3 className="text-2xl font-black text-slate-800 mb-2 uppercase">Configurar Certificado</h3>
+            <p className="text-slate-500 mb-10">Carregue seu certificado A1 para emitir cupons reais.</p>
             {certificate.isLoaded ? (
               <div className="bg-emerald-50 p-8 rounded-3xl border border-emerald-100 text-left">
                 <p className="font-bold text-slate-800 uppercase text-xs mb-1">Certificado Ativo</p>
@@ -195,8 +196,8 @@ const App: React.FC = () => {
                 <button onClick={() => setCertificate({ isLoaded: false })} className="text-red-500 text-xs font-bold mt-4 uppercase">Remover</button>
               </div>
             ) : (
-              <label className="bg-slate-900 text-white px-12 py-5 rounded-3xl font-black cursor-pointer shadow-xl transition-all">
-                Carregar Arquivo .pfx
+              <label className="bg-slate-900 text-white px-12 py-5 rounded-3xl font-black cursor-pointer shadow-xl transition-all inline-block">
+                Selecionar Arquivo .PFX
                 <input type="file" className="hidden" onChange={() => setCertificate({ isLoaded: true })} />
               </label>
             )}
@@ -204,7 +205,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* MODAL DO CUPOM FISCAL */}
       {selectedCoupon && <CouponPreview coupon={selectedCoupon} onClose={() => setSelectedCoupon(null)} />}
     </div>
   );
@@ -215,60 +215,114 @@ const App: React.FC = () => {
 const SaleView = ({ certificate, onEmit }: any) => {
   const [items, setItems] = useState<SaleItem[]>([]);
   const [selectedId, setSelectedId] = useState('');
+  const [qty, setQty] = useState(1);
+  const [received, setReceived] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  if (!certificate.isLoaded) return <div className="text-center py-40"><h3 className="text-2xl font-black mb-4">Certificado Necessário</h3><p>Configure seu certificado A1 primeiro.</p></div>;
+  if (!certificate.isLoaded) return <div className="text-center py-40 bg-slate-50"><h3 className="text-2xl font-black mb-4 uppercase">Certificado Exigido</h3><p className="text-slate-500 mb-8">Você precisa configurar o certificado A1 primeiro.</p></div>;
 
   const total = items.reduce((acc, i) => acc + i.total, 0);
+  const change = received >= total ? received - total : 0;
+
+  const handleFinish = async () => {
+    if (items.length === 0) return;
+    if (received < total) {
+      alert("Valor recebido insuficiente!");
+      return;
+    }
+    setLoading(true);
+    try {
+      await onEmit(items, total, received);
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao emitir. Tente novamente.");
+    } finally {
+      setLoading(false);
+      setItems([]);
+      setReceived(0);
+      setQty(1);
+    }
+  };
 
   return (
-    <div className="max-w-5xl mx-auto grid grid-cols-12 gap-8">
+    <div className="max-w-6xl mx-auto grid grid-cols-12 gap-8">
       <div className="col-span-8 space-y-6">
         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-          <h3 className="font-bold text-indigo-600 mb-6 uppercase text-xs tracking-widest">Lançar Serviços</h3>
-          <div className="flex gap-4 items-end">
-            <select value={selectedId} onChange={e => setSelectedId(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-              <option value="">Selecione um serviço...</option>
-              {MOCK_PRODUCTS.map(p => <option key={p.id} value={p.id}>{p.name} - R$ {p.price.toFixed(2)}</option>)}
-            </select>
-            <button onClick={() => {
-              const p = MOCK_PRODUCTS.find(x => x.id === selectedId);
-              if (p) setItems([...items, { product: p, quantity: 1, total: p.price }]);
-              setSelectedId('');
-            }} disabled={!selectedId} className="bg-slate-900 text-white font-bold h-[52px] px-8 rounded-xl hover:bg-slate-800 disabled:opacity-20 shadow-lg transition-all">Incluir Item</button>
+          <h3 className="font-black text-indigo-600 mb-6 uppercase text-xs tracking-widest">Lançar Serviços</h3>
+          <div className="grid grid-cols-12 gap-4 items-end">
+            <div className="col-span-6">
+              <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Serviço</label>
+              <select value={selectedId} onChange={e => setSelectedId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                <option value="">Selecione...</option>
+                {MOCK_PRODUCTS.map(p => <option key={p.id} value={p.id}>{p.name} - R$ {p.price.toFixed(2)}</option>)}
+              </select>
+            </div>
+            <div className="col-span-3">
+              <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Quantidade</label>
+              <input type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-sm font-bold text-center" />
+            </div>
+            <div className="col-span-3">
+              <button onClick={() => {
+                const p = MOCK_PRODUCTS.find(x => x.id === selectedId);
+                if (p) setItems([...items, { product: p, quantity: qty, total: p.price * qty }]);
+                setSelectedId('');
+                setQty(1);
+              }} disabled={!selectedId} className="w-full bg-slate-900 text-white font-bold h-[52px] rounded-xl hover:bg-slate-800 disabled:opacity-20 shadow-lg transition-all uppercase text-xs">Incluir</button>
+            </div>
           </div>
         </div>
 
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden min-h-[400px]">
           <table className="w-full text-left">
             <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 px-8 py-4 uppercase tracking-widest border-b">
-              <tr><th className="px-8 py-4">Serviço / Item</th><th className="px-8 py-4 text-right">Valor unit.</th><th className="px-8 py-4"></th></tr>
+              <tr><th className="px-8 py-4">Item</th><th className="px-8 py-4 text-center">Qtd</th><th className="px-8 py-4 text-right">Unitário</th><th className="px-8 py-4 text-right">Subtotal</th><th className="px-8 py-4"></th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {items.map((it, idx) => (
                 <tr key={idx} className="hover:bg-slate-50/50">
-                  <td className="px-8 py-5 font-bold text-slate-800">{it.product.name}</td>
+                  <td className="px-8 py-5 font-bold text-slate-800 uppercase text-xs">{it.product.name}</td>
+                  <td className="px-8 py-5 text-center font-black text-slate-900">{it.quantity}</td>
+                  <td className="px-8 py-5 text-right font-medium text-slate-500">R$ {it.product.price.toFixed(2)}</td>
                   <td className="px-8 py-5 text-right font-black text-slate-900">R$ {it.total.toFixed(2)}</td>
                   <td className="px-8 py-5 text-right"><button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-400 font-bold text-xs uppercase px-4">Remover</button></td>
                 </tr>
               ))}
-              {items.length === 0 && <tr><td colSpan={3} className="p-32 text-center text-slate-200 font-medium italic">Lançar itens para iniciar a venda.</td></tr>}
+              {items.length === 0 && <tr><td colSpan={5} className="p-32 text-center text-slate-200 font-medium italic">Selecione banhos ou tosas para iniciar.</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
 
       <div className="col-span-4">
-        <div className="bg-indigo-600 text-white p-10 rounded-[3rem] shadow-2xl shadow-indigo-600/30">
-          <p className="text-xs font-bold text-indigo-100/50 uppercase mb-8 tracking-widest">Resumo do Cupom</p>
-          <div className="flex justify-between items-baseline mb-10 pt-8 border-t border-indigo-400/30">
-            <span className="text-xs font-black uppercase text-indigo-100">Total a Pagar</span>
-            <span className="text-4xl font-black">R$ {total.toFixed(2)}</span>
+        <div className="bg-indigo-600 text-white p-8 rounded-[3rem] shadow-2xl shadow-indigo-600/30 space-y-8 sticky top-10">
+          <div>
+            <p className="text-[10px] font-black uppercase text-indigo-100/50 tracking-widest mb-2">Total do Cupom</p>
+            <p className="text-5xl font-black">R$ {total.toFixed(2)}</p>
           </div>
-          <button onClick={async () => { setLoading(true); await onEmit(items, total); setLoading(false); setItems([]); }} disabled={items.length === 0 || loading} 
-            className="w-full bg-white text-indigo-700 py-6 rounded-3xl font-black text-lg hover:bg-indigo-50 shadow-xl disabled:opacity-30 flex items-center justify-center gap-3">
-            {loading ? <span className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></span> : 'FECHAR E EMITIR'}
+
+          <div className="space-y-4 pt-8 border-t border-white/10">
+            <div>
+              <label className="text-[10px] font-black uppercase text-indigo-200 mb-2 block">Dinheiro Recebido</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-indigo-300">R$</span>
+                <input type="number" step="0.01" value={received || ''} onChange={e => setReceived(Number(e.target.value))} className="w-full bg-white/10 border border-white/20 rounded-2xl py-4 pl-12 pr-4 text-2xl font-black placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-white/30" placeholder="0,00" />
+              </div>
+            </div>
+
+            {received > 0 && (
+              <div className="bg-white/10 p-4 rounded-2xl flex justify-between items-center">
+                <span className="text-[10px] font-black uppercase text-indigo-100">Troco</span>
+                <span className="text-xl font-black text-emerald-300">R$ {change.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+
+          <button onClick={handleFinish} disabled={items.length === 0 || loading || (total > 0 && received < total)} 
+            className="w-full bg-white text-indigo-700 py-6 rounded-3xl font-black text-lg hover:bg-indigo-50 shadow-xl disabled:opacity-30 flex items-center justify-center gap-3 transition-all active:scale-95 uppercase">
+            {loading ? <div className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div> : 'Emitir Cupom'}
           </button>
+          
+          <p className="text-[9px] text-center font-bold text-indigo-300 uppercase leading-relaxed">BICHO DE PELO - CAMPINA GRANDE<br/>NFC-E FISCAL ONLINE</p>
         </div>
       </div>
     </div>
@@ -276,97 +330,121 @@ const SaleView = ({ certificate, onEmit }: any) => {
 };
 
 const CouponPreview = ({ coupon, onClose }: any) => {
+  const [exporting, setExporting] = useState(false);
+
+  const handlePDF = async () => {
+    const el = document.getElementById('coupon-content');
+    if (!el) return;
+    setExporting(true);
+    try {
+      const html2canvas = (window as any).html2canvas;
+      const { jsPDF } = (window as any).jspdf;
+      const canvas = await html2canvas(el, { scale: 3, useCORS: true });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, (canvas.height * 80) / canvas.width] });
+      pdf.addImage(imgData, 'PNG', 0, 0, 80, (canvas.height * 80) / canvas.width);
+      pdf.save(`cupom_${coupon.number}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao gerar PDF.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Overlay - Oculto na impressão */}
       <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md no-print" onClick={onClose}></div>
-      
-      {/* Contêiner do Cupom - Esta classe 'print-container' é usada no CSS do index.html */}
-      <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden z-10 print-container">
-        
-        {/* Header do Modal - Oculto na impressão */}
+      <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden z-10 print-container">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white no-print">
-          <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Cupom Fiscal NFC-e</h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+            <h3 className="font-black text-slate-800 uppercase text-[10px] tracking-widest">Cupom NFC-e Emitido</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M6 18L18 6M6 6l12 12" /></svg></button>
         </div>
 
-        {/* ÁREA DO CUPOM (MUITO IMPORTANTE) */}
-        <div className="flex-1 overflow-auto p-8 bg-slate-100/50 flex justify-center print:bg-white print:p-0">
-          <div className="bg-white p-8 shadow-sm font-mono text-[10px] leading-tight text-black w-full border-t-8 border-indigo-600 print:shadow-none print:border-none print:w-full">
-            
-            {/* Dados da Empresa */}
+        <div className="flex-1 overflow-auto p-6 bg-slate-100/50 flex flex-col items-center">
+          <div id="coupon-content" className="bg-white p-6 shadow-sm font-mono text-[9px] leading-tight text-black w-full border-t-8 border-indigo-600 print:shadow-none print:w-full">
             <div className="text-center space-y-1 mb-6">
-              <h2 className="text-xs font-black uppercase tracking-tight">{COMPANY.name}</h2>
+              <h2 className="text-[11px] font-black uppercase tracking-tight">{COMPANY.name}</h2>
               <p className="font-bold">CNPJ: {COMPANY.cnpj}</p>
-              <p className="text-[8px] uppercase font-bold leading-tight">{COMPANY.address}</p>
+              <p className="text-[7px] uppercase font-bold leading-tight">{COMPANY.address}</p>
             </div>
 
-            <div className="text-center py-3 border-y border-dashed border-black mb-6">
-              <p className="font-bold text-[10px]">DANFE NFC-e</p>
-              <p className="text-[7px] font-bold opacity-70">Documento Auxiliar de Nota Fiscal de Consumidor Eletrônica</p>
+            <div className="text-center py-2 border-y border-dashed border-black mb-4 uppercase">
+              <p className="font-bold text-[9px]">DANFE NFC-e</p>
+              <p className="text-[6px] font-bold opacity-70">Documento Auxiliar de Nota Fiscal Eletrônica</p>
             </div>
 
-            {/* TABELA DE SERVIÇOS - ONDE APARECEM OS ITENS */}
-            <table className="w-full mb-6 text-black">
+            <table className="w-full mb-4 text-black border-collapse">
               <thead>
-                <tr className="border-b border-black text-left font-black text-[9px] uppercase">
-                  <th className="pb-1">Serviço / Descrição</th>
-                  <th className="pb-1 text-right">Valor R$</th>
+                <tr className="border-b border-black text-left font-black text-[8px] uppercase">
+                  <th className="pb-1">Desc</th>
+                  <th className="pb-1 text-center">Qtd</th>
+                  <th className="pb-1 text-right">Unit</th>
+                  <th className="pb-1 text-right">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-dashed divide-black/20">
                 {coupon.items.map((it: any, idx: number) => (
                   <tr key={idx}>
-                    <td className="py-3 pr-2 font-bold uppercase">{it.product.name}</td>
-                    <td className="py-3 text-right font-black">R$ {it.total.toFixed(2)}</td>
+                    <td className="py-2 pr-1 font-bold uppercase">{it.product.name}</td>
+                    <td className="py-2 text-center font-black">{it.quantity}</td>
+                    <td className="py-2 text-right font-medium">{it.product.price.toFixed(2)}</td>
+                    <td className="py-2 text-right font-black">{it.total.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
 
-            {/* Totais */}
-            <div className="space-y-1 border-t border-black pt-4 mb-8">
-              <div className="flex justify-between font-black text-xs uppercase">
-                <span>TOTAL A PAGAR R$</span>
+            <div className="space-y-1 border-t-2 border-black pt-3 mb-6">
+              <div className="flex justify-between font-black text-[10px] uppercase">
+                <span>TOTAL R$</span>
                 <span>{coupon.total.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between mt-2 font-bold uppercase text-[7px]">
-                <span>FORMA DE PAGAMENTO</span>
-                <span>Dinheiro</span>
+              <div className="flex justify-between font-bold text-[8px] pt-1">
+                <span>RECEBIDO EM DINHEIRO</span>
+                <span>{coupon.amountReceived.toFixed(2)}</span>
               </div>
+              {coupon.change > 0 && (
+                <div className="flex justify-between font-bold text-[8px] text-slate-600">
+                  <span>TROCO</span>
+                  <span>{coupon.change.toFixed(2)}</span>
+                </div>
+              )}
             </div>
 
-            {/* Dados Fiscais */}
-            <div className="text-[8px] space-y-4 text-center">
-              <div className="bg-black/5 p-3 border border-black/10 font-bold leading-tight">
+            <div className="text-[7.5px] space-y-4 text-center">
+              <div className="bg-black/5 p-2 border border-black/10 font-bold uppercase">
                 <p>Consulte pela Chave de Acesso em:</p>
-                <p className="break-all">www.sefaz.pb.gov.br/nfce/consulta</p>
+                <p className="break-all mt-1">www.sefaz.pb.gov.br/nfce/consulta</p>
               </div>
               <div>
-                <p className="font-black uppercase tracking-widest text-[7px] mb-1">Chave de Acesso</p>
-                <p className="font-bold tracking-tight">{coupon.chNFe?.match(/.{1,4}/g)?.join(' ')}</p>
+                <p className="font-black uppercase tracking-widest text-[6px] mb-0.5 opacity-60">Chave de Acesso</p>
+                <p className="font-bold tracking-tight text-[8px]">{coupon.chNFe?.match(/.{1,4}/g)?.join(' ')}</p>
               </div>
-              <div className="pt-2 border-t border-dashed border-black leading-snug font-bold uppercase opacity-80">
+              <div className="pt-2 border-t border-dashed border-black leading-tight font-bold uppercase opacity-80">
                 <p>NFC-e nº {coupon.number} Série {coupon.serie}</p>
                 <p>Emissão: {new Date(coupon.date).toLocaleString('pt-BR')}</p>
                 <p>Protocolo: {coupon.protocol}</p>
               </div>
               {coupon.qrCode && (
-                <div className="flex flex-col items-center gap-2 pt-6 border-t border-dashed border-black">
-                  <img src={coupon.qrCode} className="w-32 h-32" alt="QR Code" />
-                  <p className="uppercase font-black tracking-widest text-[6px] opacity-60">Consulta via QR Code</p>
+                <div className="flex flex-col items-center gap-1.5 pt-4 border-t border-dashed border-black">
+                  <img src={coupon.qrCode} className="w-28 h-28" alt="QR Code" />
+                  <p className="uppercase font-black tracking-widest text-[5px] opacity-60">Consulta via QR Code</p>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Footer do Modal - Oculto na impressão */}
-        <div className="p-8 bg-white border-t border-slate-100 flex gap-4 no-print">
-          <button onClick={() => window.print()} className="flex-1 bg-slate-900 text-white font-black py-5 rounded-2xl hover:bg-slate-800 shadow-xl transition-all uppercase tracking-widest text-xs">
-            Imprimir Cupom
+        <div className="p-6 bg-white border-t border-slate-100 flex gap-3 no-print">
+          <button onClick={handlePDF} disabled={exporting} className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-2xl hover:bg-indigo-700 shadow-xl transition-all uppercase text-[10px] tracking-widest flex items-center justify-center gap-2">
+            {exporting ? 'Gerando...' : 'Baixar PDF'}
+          </button>
+          <button onClick={() => window.print()} className="px-6 bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-slate-800 transition-all uppercase text-[10px] tracking-widest">
+            Imprimir
           </button>
         </div>
       </div>
