@@ -1,0 +1,7 @@
+{
+  "name": "Bicho de Pelo - Emissor NFC-e",
+  "description": "Sistema simplificado para emissão de cupons fiscais (NFC-e) para o petshop Bicho de Pelo, com suporte a certificado digital A1 e integração simulada com SEFAZ-PB.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
