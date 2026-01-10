@@ -7,6 +7,9 @@
     <title>Bicho de Pelo - Emissor Fiscal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Bibliotecas para PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body { 
             font-family: 'Plus Jakarta Sans', sans-serif; 
@@ -17,11 +20,22 @@
             .no-print { display: none !important; }
             body { background: white !important; margin: 0 !important; padding: 0 !important; }
             #root { display: none !important; }
-            .print-area { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
+            .print-container {
+                display: block !important;
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+            }
+        }
+        /* Estilo para garantir que o cupom sempre tenha fundo branco e texto preto */
+        #coupon-to-export {
+            background-color: white !important;
+            color: black !important;
         }
     </style>
 </head>
-<body class="antialiased">
+<body>
     <div id="root"></div>
     <script type="importmap">
 {

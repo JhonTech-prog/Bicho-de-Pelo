@@ -28,8 +28,12 @@ export interface Coupon {
   date: string;
   items: SaleItem[];
   total: number;
+  amountReceived: number;
+  change: number;
+  paymentMethod: string;
   status: 'AUTORIZADA' | 'CANCELADA' | 'ERRO';
   protocol?: string;
+  chNFe?: string;
   xmlUrl?: string;
   qrCode?: string;
 }
