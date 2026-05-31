@@ -19,16 +19,19 @@
         @media print {
             .no-print { display: none !important; }
             body { background: white !important; margin: 0 !important; padding: 0 !important; }
-            #root { display: none !important; }
+            body * { visibility: hidden !important; }
             .print-container {
+                visibility: visible !important;
                 display: block !important;
                 position: absolute;
                 top: 0;
                 left: 0;
                 width: 100%;
             }
+            .print-container * { visibility: visible !important; }
         }
         /* Estilo para garantir que o cupom sempre tenha fundo branco e texto preto */
+        #coupon-content,
         #coupon-to-export {
             background-color: white !important;
             color: black !important;
@@ -49,6 +52,6 @@
   }
 }
 </script>
-    <script type="module" src="index.js"></script>
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>

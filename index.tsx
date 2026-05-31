@@ -1,19 +1,22 @@
 
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { GoogleGenAI, Type } from "@google/genai";
 
 // --- CONFIGURAÇÃO E TIPAGEM ---
 enum AppView {
   DASHBOARD = 'DASHBOARD',
   EMITIR = 'EMITIR',
-  CERTIFICADO = 'CERTIFICADO'
+  CERTIFICADO = 'CERTIFICADO',
+  CONFIG_FISCAL = 'CONFIG_FISCAL'
 }
 
 interface Product {
   id: string;
   name: string;
   price: number;
+  ncm: string;
+  cfop: string;
+  unit: string;
 }
 
 interface SaleItem {
@@ -27,6 +30,8 @@ interface Coupon {
   number: number;
   serie: number;
   date: string;
+  status: 'AUTORIZADA' | 'SIMULADA' | 'ERRO';
+  signatureStatus?: 'NOT_CONFIGURED' | 'SIGNED' | 'ERROR';
   items: SaleItem[];
   total: number;
   amountReceived: number;
@@ -36,6 +41,31 @@ interface Coupon {
   qrCode?: string;
 }
 
+interface FiscalConfig {
+  companyName: string;
+  cnpj: string;
+  stateRegistration: string;
+  cityCode: string;
+  cityName: string;
+  state: string;
+  taxRegime: 'simples' | 'normal';
+  csc: string;
+  cscId: string;
+  nfceSerie: number;
+  nextNfceNumber: number;
+  environment: 'local' | 'homologacao' | 'producao';
+  certificate?: {
+    fileName: string;
+    uploadedAt: string;
+    hasPassword: boolean;
+    subjectName?: string;
+    issuerName?: string;
+    serialNumber?: string;
+    validFrom?: string;
+    validTo?: string;
+  };
+}
+
 const COMPANY = {
   name: 'BICHO DE PELO',
   cnpj: '26.614.661/0001-09',
@@ -43,23 +73,49 @@ const COMPANY = {
 };
 
 const MOCK_PRODUCTS: Product[] = [
-  { id: '1', name: 'Banho e Tosa', price: 150.00 },
-  { id: '2', name: 'Banho', price: 50.00 },
-  { id: '3', name: 'Tosa', price: 50.00 },
-  { id: '4', name: 'Hidratação', price: 30.00 },
-  { id: '5', name: 'Ração Golden 15kg', price: 189.90 },
+  { id: 'HIG-001', name: 'Produtos de banho pet', price: 50.00, ncm: '33079000', cfop: '5102', unit: 'UN' },
+  { id: 'HIG-002', name: 'Produtos banho e tosa pet', price: 150.00, ncm: '33079000', cfop: '5102', unit: 'UN' },
+  { id: 'HIG-003', name: 'Shampoo/condicionador pet', price: 30.00, ncm: '33079000', cfop: '5102', unit: 'UN' },
+  { id: 'HIG-004', name: 'Hidratacao de pelagem pet', price: 30.00, ncm: '33079000', cfop: '5102', unit: 'UN' },
+  { id: 'HIG-005', name: 'Colonia pos-banho pet', price: 20.00, ncm: '33079000', cfop: '5102', unit: 'UN' },
+  { id: 'RAC-001', name: 'Racao caes/gatos 1kg', price: 25.00, ncm: '23091000', cfop: '5102', unit: 'KG' },
+  { id: 'RAC-002', name: 'Racao caes/gatos 10kg', price: 139.90, ncm: '23091000', cfop: '5102', unit: 'UN' },
+  { id: 'RAC-003', name: 'Racao Golden 15kg', price: 189.90, ncm: '23091000', cfop: '5102', unit: 'UN' },
 ];
+
+const readStorage = <T,>(key: string, fallback: T): T => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch {
+    localStorage.removeItem(key);
+    return fallback;
+  }
+};
+
+const emitNfce = async (items: SaleItem[], total: number, amountReceived: number) => {
+  const response = await fetch('/api/nfce/emit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, total, amountReceived }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error || 'Erro ao emitir NFC-e.');
+  }
+
+  return response.json();
+};
 
 // --- COMPONENTE PRINCIPAL ---
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
-    const saved = localStorage.getItem('bicho_pelo_v2_coupons');
-    return saved ? JSON.parse(saved) : [];
+    return readStorage<Coupon[]>('bicho_pelo_v2_coupons', []);
   });
   const [certificate, setCertificate] = useState(() => {
-    const saved = localStorage.getItem('bicho_pelo_v2_cert');
-    return saved ? JSON.parse(saved) : { isLoaded: false };
+    return readStorage('bicho_pelo_v2_cert', { isLoaded: false });
   });
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null);
 
@@ -67,54 +123,21 @@ const App: React.FC = () => {
   useEffect(() => localStorage.setItem('bicho_pelo_v2_cert', JSON.stringify(certificate)), [certificate]);
 
   const handleEmit = async (items: SaleItem[], total: number, received: number) => {
-    // Cria instância da IA na hora do clique para garantir a chave atualizada
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-    let fiscalData = { 
-      nProt: "125" + Date.now().toString().slice(-10), 
-      chNFe: "25" + Date.now().toString().padEnd(42, '0') 
-    };
-
-    try {
-      // Tenta simular a autorização SEFAZ via Gemini
-      const promise = ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Gere protocolo fiscal fictício para SEFAZ-PB: Petshop BICHO DE PELO. Valor R$ ${total.toFixed(2)}. Retorne JSON: nProt, chNFe.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              nProt: { type: Type.STRING },
-              chNFe: { type: Type.STRING }
-            },
-            required: ["nProt", "chNFe"]
-          }
-        }
-      });
-
-      // Timeout de 4 segundos para a IA não travar o sistema do usuário
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 4000));
-      const response: any = await Promise.race([promise, timeoutPromise]);
-      
-      if (response && response.text) {
-        fiscalData = JSON.parse(response.text);
-      }
-    } catch (e) {
-      console.warn("Gerando cupom em modo offline/contingência por lentidão ou erro da API.");
-    }
-
+    const nfce = await emitNfce(items, total, received);
     const newCoupon: Coupon = {
-      id: crypto.randomUUID(),
-      number: coupons.length + 1,
-      serie: 1,
-      date: new Date().toISOString(),
+      id: nfce.id,
+      number: nfce.number,
+      serie: nfce.serie,
+      date: nfce.issueDate,
+      status: nfce.status,
+      signatureStatus: nfce.signatureStatus,
       items: [...items],
       total,
       amountReceived: received,
       change: received - total,
-      protocol: fiscalData.nProt,
-      chNFe: fiscalData.chNFe,
-      qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://www.sefaz.pb.gov.br/nfce/consulta?chNFe=${fiscalData.chNFe}`
+      protocol: nfce.protocol,
+      chNFe: nfce.accessKey,
+      qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(nfce.qrCodeUrl || nfce.danfeUrl)}`
     };
 
     setCoupons(prev => [newCoupon, ...prev]);
@@ -141,6 +164,7 @@ const App: React.FC = () => {
             {[
               { id: AppView.DASHBOARD, label: 'Painel Inicial', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
               { id: AppView.EMITIR, label: 'Nova Venda', icon: 'M12 4v16m8-8H4' },
+              { id: AppView.CONFIG_FISCAL, label: 'Configuração Fiscal', icon: 'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456 1.296 2.247-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828-1.298 2.247-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.127c-.332.183-.582.495-.644.869l-.213 1.28h-2.594l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456-1.297-2.247 1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828 1.297-2.247 1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
               { id: AppView.CERTIFICADO, label: 'Certificado A1', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
             ].map(item => (
               <button key={item.id} onClick={() => setView(item.id as AppView)} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all font-bold text-sm ${view === item.id ? 'bg-sky-600 text-white shadow-xl shadow-sky-900/20 translate-x-1' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
@@ -152,12 +176,12 @@ const App: React.FC = () => {
         </div>
         
         <div className="mt-auto p-8 border-t border-slate-800 bg-slate-900/50">
-          <div className={`p-4 rounded-2xl border-2 ${certificate.isLoaded ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-red-500/5 border-red-500/20 text-red-400'}`}>
+          <div className={`p-4 rounded-2xl border-2 ${certificate.isLoaded ? 'bg-amber-500/5 border-amber-500/20 text-amber-300' : 'bg-red-500/5 border-red-500/20 text-red-400'}`}>
             <div className="flex items-center gap-2 mb-1">
-              <span className={`w-2 h-2 rounded-full ${certificate.isLoaded ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
+              <span className={`w-2 h-2 rounded-full ${certificate.isLoaded ? 'bg-amber-400 animate-pulse' : 'bg-red-500'}`}></span>
               <p className="text-[10px] font-black uppercase tracking-tighter">Status Fiscal</p>
             </div>
-            <p className="text-[11px] font-bold truncate">{certificate.isLoaded ? 'EMISSÃO LIBERADA' : 'SEM CERTIFICADO'}</p>
+            <p className="text-[11px] font-bold truncate">{certificate.isLoaded ? 'CERTIFICADO OK / SEFAZ PENDENTE' : 'SEM CERTIFICADO'}</p>
           </div>
         </div>
       </aside>
@@ -169,7 +193,7 @@ const App: React.FC = () => {
             <div className="flex justify-between items-end mb-12">
               <div>
                 <h2 className="text-4xl font-black text-slate-800 tracking-tight uppercase">Caixa Bicho de Pelo</h2>
-                <p className="text-slate-500 font-bold mt-1">Gerencie suas vendas e cupons fiscais</p>
+                <p className="text-slate-500 font-bold mt-1">Gerencie vendas e acompanhe o status fiscal real de cada cupom</p>
               </div>
               <button onClick={() => setView(AppView.EMITIR)} className="bg-sky-600 text-white px-10 py-5 rounded-[2rem] font-black hover:bg-sky-700 shadow-2xl shadow-sky-200 transition-all active:scale-95 uppercase tracking-widest text-xs">Nova Venda</button>
             </div>
@@ -191,18 +215,23 @@ const App: React.FC = () => {
               </div>
               <table className="w-full text-left">
                 <thead className="bg-white text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                  <tr><th className="px-8 py-5">Cupom</th><th className="px-8 py-5">Data/Hora</th><th className="px-8 py-5 text-right">Valor Total</th><th className="px-8 py-5"></th></tr>
+                  <tr><th className="px-8 py-5">Cupom</th><th className="px-8 py-5">Data/Hora</th><th className="px-8 py-5">Status</th><th className="px-8 py-5 text-right">Valor Total</th><th className="px-8 py-5"></th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {coupons.map(c => (
                     <tr key={c.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-8 py-6 text-sm font-black text-slate-700">#{String(c.number).padStart(4, '0')}</td>
                       <td className="px-8 py-6 text-xs text-slate-500 font-bold">{new Date(c.date).toLocaleString('pt-BR')}</td>
+                      <td className="px-8 py-6">
+                        <span className={`inline-flex px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${c.status === 'AUTORIZADA' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {c.status || 'SIMULADA'}
+                        </span>
+                      </td>
                       <td className="px-8 py-6 text-right font-black text-slate-900 text-lg">R$ {c.total.toFixed(2)}</td>
                       <td className="px-8 py-6 text-right"><button onClick={() => setSelectedCoupon(c)} className="bg-slate-100 text-slate-600 font-black text-[10px] uppercase px-5 py-2.5 rounded-xl hover:bg-sky-100 hover:text-sky-700 transition-all tracking-widest">Detalhes</button></td>
                     </tr>
                   ))}
-                  {coupons.length === 0 && <tr><td colSpan={4} className="p-32 text-center text-slate-300 font-bold italic text-lg uppercase tracking-widest opacity-30">Nenhum cupom hoje</td></tr>}
+                  {coupons.length === 0 && <tr><td colSpan={5} className="p-32 text-center text-slate-300 font-bold italic text-lg uppercase tracking-widest opacity-30">Nenhum cupom hoje</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -211,6 +240,10 @@ const App: React.FC = () => {
 
         {view === AppView.EMITIR && (
           <SaleView certificate={certificate} onEmit={handleEmit} />
+        )}
+
+        {view === AppView.CONFIG_FISCAL && (
+          <FiscalConfigView onCertificateLoaded={() => setCertificate({ isLoaded: true })} />
         )}
 
         {view === AppView.CERTIFICADO && (
@@ -240,6 +273,243 @@ const App: React.FC = () => {
 
       {/* Modal de Cupom - Fica por cima de tudo */}
       {selectedCoupon && <CouponPreview coupon={selectedCoupon} onClose={() => setSelectedCoupon(null)} />}
+    </div>
+  );
+};
+
+const EMPTY_FISCAL_CONFIG: FiscalConfig = {
+  companyName: '',
+  cnpj: '',
+  stateRegistration: '',
+  cityCode: '2504009',
+  cityName: 'Campina Grande',
+  state: 'PB',
+  taxRegime: 'simples',
+  csc: '',
+  cscId: '',
+  nfceSerie: 1,
+  nextNfceNumber: 1,
+  environment: 'local',
+};
+
+const FiscalConfigView = ({ onCertificateLoaded }: { onCertificateLoaded: () => void }) => {
+  const [config, setConfig] = useState<FiscalConfig>(EMPTY_FISCAL_CONFIG);
+  const [certificateFile, setCertificateFile] = useState<File | null>(null);
+  const [certificatePassword, setCertificatePassword] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testingSefaz, setTestingSefaz] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    fetch('/api/config/fiscal')
+      .then((response) => response.json())
+      .then((data) => {
+        setConfig({ ...EMPTY_FISCAL_CONFIG, ...data });
+        if (data.certificate) onCertificateLoaded();
+      })
+      .catch(() => setMessage('Não foi possível carregar a configuração fiscal.'))
+      .finally(() => setLoading(false));
+  }, [onCertificateLoaded]);
+
+  const updateField = (field: keyof FiscalConfig, value: string | number) => {
+    setConfig((current) => ({ ...current, [field]: value }));
+  };
+
+  const saveConfig = async () => {
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/config/fiscal', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+
+      if (!response.ok) throw new Error('Erro ao salvar configuração.');
+
+      setConfig(await response.json());
+      setMessage('Configuração fiscal salva.');
+    } catch (error: any) {
+      setMessage(error.message || 'Erro ao salvar configuração.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const uploadCertificate = async () => {
+    if (!certificateFile) {
+      setMessage('Selecione um certificado .pfx ou .p12.');
+      return;
+    }
+
+    setSaving(true);
+    setMessage('');
+    try {
+      const formData = new FormData();
+      formData.append('certificate', certificateFile);
+      formData.append('password', certificatePassword);
+
+      const response = await fetch('/api/config/certificate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error || 'Erro ao enviar certificado.');
+      }
+
+      setConfig(await response.json());
+      setCertificateFile(null);
+      setCertificatePassword('');
+      onCertificateLoaded();
+      setMessage('Certificado validado e salvo no backend local.');
+    } catch (error: any) {
+      setMessage(error.message || 'Erro ao enviar certificado.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const testSefaz = async () => {
+    setTestingSefaz(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/sefaz/status');
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Erro ao consultar status da SEFAZ.');
+      }
+
+      setMessage(`SEFAZ respondeu ${data.cStat}: ${data.xMotivo}${data.tlsWarning ? ` (${data.tlsWarning})` : ''}`);
+    } catch (error: any) {
+      setMessage(error.message || 'Erro ao consultar status da SEFAZ.');
+    } finally {
+      setTestingSefaz(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="p-20 text-center font-black text-slate-300 uppercase tracking-widest">Carregando configuração fiscal...</div>;
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div>
+        <h2 className="text-4xl font-black text-slate-800 tracking-tight uppercase">Configuração Fiscal</h2>
+        <p className="text-slate-500 font-bold mt-1">Dados usados pelo backend local para montar, assinar e emitir NFC-e na SEFAZ-PB.</p>
+      </div>
+
+      {message && (
+        <div className="bg-sky-50 border border-sky-100 text-sky-700 px-6 py-4 rounded-2xl text-sm font-bold">
+          {message}
+        </div>
+      )}
+
+      <div className="grid grid-cols-12 gap-8">
+        <div className="col-span-7 bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
+          <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Empresa e Município</h3>
+          <div className="grid grid-cols-2 gap-5">
+            <div className="col-span-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Razão Social</label>
+              <input value={config.companyName} onChange={(e) => updateField('companyName', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">CNPJ</label>
+              <input value={config.cnpj} onChange={(e) => updateField('cnpj', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Inscrição Estadual</label>
+              <input value={config.stateRegistration} onChange={(e) => updateField('stateRegistration', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Município</label>
+              <input value={config.cityName} onChange={(e) => updateField('cityName', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Código IBGE</label>
+              <input value={config.cityCode} onChange={(e) => updateField('cityCode', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+            </div>
+          </div>
+        </div>
+
+        <div className="col-span-5 bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
+          <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">NFC-e e SEFAZ</h3>
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">CSC</label>
+            <input value={config.csc} onChange={(e) => updateField('csc', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+          </div>
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">ID CSC</label>
+            <input value={config.cscId} onChange={(e) => updateField('cscId', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+          </div>
+          <div className="grid grid-cols-2 gap-5">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Série</label>
+              <input type="number" value={config.nfceSerie} onChange={(e) => updateField('nfceSerie', Number(e.target.value))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Próximo Nº</label>
+              <input type="number" value={config.nextNfceNumber} onChange={(e) => updateField('nextNfceNumber', Number(e.target.value))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+            </div>
+          </div>
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Regime Tributário</label>
+            <select value={config.taxRegime} onChange={(e) => updateField('taxRegime', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50">
+              <option value="simples">Simples Nacional</option>
+              <option value="normal">Regime Normal</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Ambiente</label>
+            <select value={config.environment} onChange={(e) => updateField('environment', e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50">
+              <option value="local">Local Simulado</option>
+              <option value="homologacao">Homologação</option>
+              <option value="producao">Produção</option>
+            </select>
+          </div>
+          <button onClick={saveConfig} disabled={saving} className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl hover:bg-slate-800 disabled:opacity-40 uppercase tracking-widest text-xs">
+            {saving ? 'Salvando...' : 'Salvar Configuração'}
+          </button>
+          <button onClick={testSefaz} disabled={testingSefaz || saving} className="w-full bg-sky-600 text-white font-black py-5 rounded-2xl hover:bg-sky-700 disabled:opacity-40 uppercase tracking-widest text-xs">
+            {testingSefaz ? 'Consultando SEFAZ...' : 'Testar SEFAZ Real'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm grid grid-cols-12 gap-8 items-end">
+        <div className="col-span-5">
+          <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest mb-5">Certificado A1</h3>
+          {config.certificate ? (
+            <div className="space-y-2 text-sm font-bold text-slate-500">
+              <p>Atual: {config.certificate.fileName}</p>
+              {config.certificate.validTo && (
+                <p>Valido ate: {new Date(config.certificate.validTo).toLocaleDateString('pt-BR')}</p>
+              )}
+              {config.certificate.subjectName && (
+                <p className="text-xs leading-snug break-words">Titular: {config.certificate.subjectName}</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm font-bold text-slate-500">Nenhum certificado salvo no backend.</p>
+          )}
+        </div>
+        <div className="col-span-3">
+          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Arquivo .pfx/.p12</label>
+          <input type="file" accept=".pfx,.p12" onChange={(e) => setCertificateFile(e.target.files?.[0] || null)} className="w-full text-xs font-bold text-slate-500 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-3 file:text-xs file:font-black file:uppercase file:text-white" />
+        </div>
+        <div className="col-span-2">
+          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Senha</label>
+          <input type="password" value={certificatePassword} onChange={(e) => setCertificatePassword(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none focus:border-sky-500/50" />
+        </div>
+        <div className="col-span-2">
+          <button onClick={uploadCertificate} disabled={saving} className="w-full bg-sky-600 text-white font-black py-5 rounded-2xl hover:bg-sky-700 disabled:opacity-40 uppercase tracking-widest text-xs">
+            Enviar
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -275,7 +545,7 @@ const SaleView = ({ certificate, onEmit }: any) => {
       await onEmit(items, total, received);
     } catch (e) {
       console.error(e);
-      alert("Erro crítico ao emitir. O sistema foi resetado para segurança.");
+      alert(e instanceof Error ? e.message : "Erro crítico ao emitir. O sistema foi resetado para segurança.");
     } finally {
       // GARANTE que o loading pare, independente do que aconteça
       setLoading(false);
@@ -306,7 +576,7 @@ const SaleView = ({ certificate, onEmit }: any) => {
               <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Serviço / Produto</label>
               <select value={selectedId} onChange={e => setSelectedId(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-sm font-bold text-slate-700 focus:outline-none focus:border-sky-500/50 focus:ring-4 focus:ring-sky-500/10 transition-all appearance-none">
                 <option value="">Escolha um item...</option>
-                {MOCK_PRODUCTS.map(p => <option key={p.id} value={p.id}>{p.name} - R$ {p.price.toFixed(2)}</option>)}
+                {MOCK_PRODUCTS.map(p => <option key={p.id} value={p.id}>{p.name} - NCM {p.ncm} - R$ {p.price.toFixed(2)}</option>)}
               </select>
             </div>
             <div className="col-span-3">
@@ -327,7 +597,10 @@ const SaleView = ({ certificate, onEmit }: any) => {
             <tbody className="divide-y divide-slate-100">
               {items.map((it, idx) => (
                 <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
-                  <td className="px-10 py-6 font-black text-slate-800 uppercase text-xs tracking-tight">{it.product.name}</td>
+                  <td className="px-10 py-6 font-black text-slate-800 uppercase text-xs tracking-tight">
+                    {it.product.name}
+                    <span className="block mt-1 text-[9px] text-slate-400 tracking-widest">NCM {it.product.ncm}</span>
+                  </td>
                   <td className="px-10 py-6 text-center font-black text-slate-900 text-base">{it.quantity}</td>
                   <td className="px-10 py-6 text-right font-bold text-slate-400 text-xs">R$ {it.product.price.toFixed(2)}</td>
                   <td className="px-10 py-6 text-right font-black text-slate-900 text-base">R$ {it.total.toFixed(2)}</td>
@@ -381,15 +654,15 @@ const SaleView = ({ certificate, onEmit }: any) => {
                 <div className="w-6 h-6 border-4 border-sky-200 border-t-sky-600 rounded-full animate-spin"></div>
                 <span>Processando...</span>
               </div>
-            ) : 'Gerar Cupom Fiscal'}
+            ) : 'Gerar Cupom Local'}
           </button>
           
           <div className="flex flex-col items-center gap-2 opacity-50">
              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                <p className="text-[9px] font-black uppercase tracking-widest">SEFAZ PB ONLINE</p>
+                <span className="w-1.5 h-1.5 bg-amber-300 rounded-full animate-pulse"></span>
+                <p className="text-[9px] font-black uppercase tracking-widest">MODO LOCAL SIMULADO</p>
              </div>
-             <p className="text-[8px] font-bold text-sky-200 uppercase">Campina Grande - PB</p>
+             <p className="text-[8px] font-bold text-sky-200 uppercase">Sem autorização SEFAZ</p>
           </div>
         </div>
       </div>
@@ -429,8 +702,8 @@ const CouponPreview = ({ coupon, onClose }: any) => {
         {/* Header Modal */}
         <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-white no-print">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
-            <h3 className="font-black text-slate-800 uppercase text-xs tracking-[0.2em]">Cupom Gerado</h3>
+            <div className={`w-3 h-3 rounded-full animate-pulse ${coupon.status === 'AUTORIZADA' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.5)]'}`}></div>
+            <h3 className="font-black text-slate-800 uppercase text-xs tracking-[0.2em]">{coupon.status === 'AUTORIZADA' ? 'Cupom Autorizado' : 'Cupom Simulado'}</h3>
           </div>
           <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-2xl text-slate-400 transition-all"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M6 18L18 6M6 6l12 12" /></svg></button>
         </div>
@@ -445,8 +718,8 @@ const CouponPreview = ({ coupon, onClose }: any) => {
             </div>
 
             <div className="text-center py-3 border-y-2 border-dashed border-black mb-6 uppercase">
-              <p className="font-black text-[10px]">DANFE NFC-e</p>
-              <p className="text-[7px] font-bold opacity-70">Doc. Auxiliar da Nota Fiscal Eletrônica</p>
+              <p className="font-black text-[10px]">{coupon.status === 'AUTORIZADA' ? 'DANFE NFC-e' : 'Pré-DANFE NFC-e'}</p>
+              <p className="text-[7px] font-bold opacity-70">{coupon.status === 'AUTORIZADA' ? 'Doc. Auxiliar da Nota Fiscal Eletrônica' : 'Documento local sem autorização da SEFAZ'}</p>
             </div>
 
             <table className="w-full mb-6 text-black border-collapse">
@@ -461,7 +734,10 @@ const CouponPreview = ({ coupon, onClose }: any) => {
               <tbody className="divide-y divide-dashed divide-black/30">
                 {coupon.items.map((it: any, idx: number) => (
                   <tr key={idx} className="align-top">
-                    <td className="py-3 pr-2 font-bold uppercase leading-tight">{it.product.name}</td>
+                    <td className="py-3 pr-2 font-bold uppercase leading-tight">
+                      {it.product.name}
+                      <span className="block text-[6px] opacity-50 mt-1">NCM {it.product.ncm}</span>
+                    </td>
                     <td className="py-3 text-center font-black">{it.quantity}</td>
                     <td className="py-3 text-right font-bold">{it.product.price.toFixed(2)}</td>
                     <td className="py-3 text-right font-black">{it.total.toFixed(2)}</td>
@@ -489,8 +765,8 @@ const CouponPreview = ({ coupon, onClose }: any) => {
 
             <div className="text-[8px] space-y-6 text-center">
               <div className="bg-black/5 p-4 border border-black/10 font-black uppercase leading-tight rounded-lg">
-                <p>Consulte pela Chave de Acesso em:</p>
-                <p className="break-all mt-2 text-[7px] selection:bg-black selection:text-white">www.sefaz.pb.gov.br/nfce/consulta</p>
+                <p>{coupon.status === 'AUTORIZADA' ? 'Consulte pela Chave de Acesso em:' : 'Sem consulta fiscal válida'}</p>
+                <p className="break-all mt-2 text-[7px] selection:bg-black selection:text-white">{coupon.status === 'AUTORIZADA' ? 'www.sefaz.pb.gov.br/nfce' : 'Aguardando integração real com a SEFAZ-PB'}</p>
               </div>
               <div className="px-2">
                 <p className="font-black uppercase tracking-[0.2em] text-[7px] mb-1 opacity-50">Chave de Acesso</p>
@@ -499,7 +775,8 @@ const CouponPreview = ({ coupon, onClose }: any) => {
               <div className="pt-4 border-t-2 border-dashed border-black leading-snug font-black uppercase opacity-90 text-[8.5px]">
                 <p>NFC-e nº {String(coupon.number).padStart(6, '0')} Série {coupon.serie}</p>
                 <p>Emissão: {new Date(coupon.date).toLocaleString('pt-BR')}</p>
-                <p>Protocolo: {coupon.protocol}</p>
+                <p>{coupon.status === 'AUTORIZADA' ? 'Protocolo' : 'Protocolo local'}: {coupon.protocol}</p>
+                <p>Status: {coupon.status || 'SIMULADA'} / Assinatura: {coupon.signatureStatus || 'NÃO INFORMADA'}</p>
               </div>
               {coupon.qrCode && (
                 <div className="flex flex-col items-center gap-3 pt-6 border-t-2 border-dashed border-black">

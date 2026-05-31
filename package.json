@@ -5,17 +5,32 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:backend": "tsx watch server/index.ts",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "backend": "tsx server/index.ts"
   },
   "dependencies": {
+    "@google/genai": "1.35.0",
+    "@xmldom/xmldom": "^0.9.10",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "node-forge": "^1.4.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "@google/genai": "1.35.0"
+    "win-ca": "^3.5.1",
+    "xml-crypto": "^6.1.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
