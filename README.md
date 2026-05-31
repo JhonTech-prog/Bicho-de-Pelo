@@ -1,6 +1,6 @@
 # Bicho de Pelo
 
-Sistema local/web de caixa e emissao NFC-e para o petshop Bicho de Pelo.
+Sistema local de caixa e emissao NFC-e para o petshop Bicho de Pelo.
 
 ## Estrutura
 
@@ -23,6 +23,8 @@ Sistema local/web de caixa e emissao NFC-e para o petshop Bicho de Pelo.
 ├── deploy/
 │   └── nginx-bicho-de-pelo.conf
 ├── ecosystem.config.cjs     # PM2
+├── start-local.bat          # inicializador Windows
+├── start-local.ps1          # inicializador PowerShell
 ├── .env.example             # variaveis do frontend
 ├── package.json             # frontend + scripts locais
 └── data/                    # NAO versionar: certificado, configs e XMLs
@@ -71,7 +73,42 @@ ALLOWED_ORIGINS=http://localhost:3000,https://app.seudominio.com
 
 Os dados fiscais tambem podem ser preenchidos pela tela `Configuracao Fiscal`.
 
-## Instalar e rodar em desenvolvimento
+## Modo encapsulado local
+
+Este e o modo recomendado para o computador que ficara como servidor local do caixa/impressao.
+O frontend e compilado para `dist/` e o backend serve tudo pela mesma porta.
+
+```bash
+npm install
+npm run build
+npm run start
+```
+
+Acesse no computador servidor:
+
+```text
+http://localhost:3333
+```
+
+Acesse nos outros computadores da rede:
+
+```text
+http://IP-DO-SERVIDOR:3333
+```
+
+No Windows, voce tambem pode usar:
+
+```text
+start-local.bat
+```
+
+ou:
+
+```powershell
+.\start-local.ps1
+```
+
+## Rodar separado em desenvolvimento
 
 Na raiz do projeto:
 
@@ -123,6 +160,12 @@ O build fica em:
 
 ```text
 dist/
+```
+
+Depois do build, `npm run start` serve o frontend e a API juntos em:
+
+```text
+http://localhost:3333
 ```
 
 ## Deploy simples com dominio

@@ -18,6 +18,7 @@ function splitCsv(value: string | undefined) {
 export const config = {
   port: Number(process.env.BACKEND_PORT || 3333),
   dataDir: process.env.DATA_DIR || 'data',
+  staticDir: process.env.STATIC_DIR || 'dist',
   allowedOrigins: splitCsv(process.env.ALLOWED_ORIGINS),
   company: {
     name: process.env.COMPANY_NAME || '',

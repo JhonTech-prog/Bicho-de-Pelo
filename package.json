@@ -8,6 +8,7 @@
     "dev:backend": "tsx watch server/index.ts",
     "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev\"",
     "build": "vite build",
+    "serve:local": "npm run build && npm run start",
     "preview": "vite preview",
     "backend": "tsx server/index.ts",
     "start": "tsx server/index.ts",

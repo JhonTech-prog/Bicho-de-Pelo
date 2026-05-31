@@ -3,7 +3,7 @@ import cors from 'cors';
 import multer from 'multer';
 import type { File as MulterFile } from 'multer';
 import path from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { access, mkdir } from 'node:fs/promises';
 import { config } from './config';
 import { emitNfce } from './nfceService';
 import { readRecords } from './storage';
@@ -13,6 +13,8 @@ import { checkSefazStatus } from './sefazService';
 const app = express();
 type CertificateUploadRequest = express.Request & { file?: MulterFile };
 const uploadDir = path.resolve(config.dataDir, 'uploads');
+const staticDir = path.resolve(config.staticDir);
+const indexHtmlPath = path.resolve(staticDir, 'index.html');
 await mkdir(uploadDir, { recursive: true });
 const upload = multer({
   dest: uploadDir,
@@ -44,26 +46,13 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 
-app.get('/', (_req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
-    service: 'bicho-de-pelo-backend',
-    message: 'Backend local ativo. Use o front em http://localhost:3000 ou os endpoints /api.',
-    endpoints: [
-      'GET /api/health',
-      'GET /api/config/fiscal',
-      'PUT /api/config/fiscal',
-      'POST /api/config/certificate',
-      'GET /api/sefaz/status',
-      'GET /api/nfce',
-      'POST /api/nfce/emit',
-      'GET /api/nfce/:number/xml',
-    ],
+    service: 'bicho-de-pelo',
+    environment: config.nfce.environment,
+    frontend: staticDir,
   });
-});
-
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'bicho-de-pelo-backend', environment: config.nfce.environment });
 });
 
 app.get('/api/config/fiscal', async (_req, res, next) => {
@@ -138,10 +127,41 @@ app.post('/api/nfce/emit', async (req, res, next) => {
   }
 });
 
+try {
+  await access(indexHtmlPath);
+  app.use(express.static(staticDir));
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      next();
+      return;
+    }
+
+    res.sendFile(indexHtmlPath);
+  });
+} catch {
+  app.get('/', (_req, res) => {
+    res.json({
+      ok: true,
+      service: 'bicho-de-pelo-backend',
+      message: 'Backend ativo. Rode npm run build para encapsular e servir o frontend por esta mesma porta.',
+      endpoints: [
+        'GET /api/health',
+        'GET /api/config/fiscal',
+        'PUT /api/config/fiscal',
+        'POST /api/config/certificate',
+        'GET /api/sefaz/status',
+        'GET /api/nfce',
+        'POST /api/nfce/emit',
+        'GET /api/nfce/:number/xml',
+      ],
+    });
+  });
+}
+
 app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   res.status(400).json({ error: error.message || 'Erro inesperado.' });
 });
 
 app.listen(config.port, '0.0.0.0', () => {
-  console.log(`Backend local rodando em http://0.0.0.0:${config.port}`);
+  console.log(`Bicho de Pelo rodando em http://0.0.0.0:${config.port}`);
 });
