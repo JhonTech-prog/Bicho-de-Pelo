@@ -108,6 +108,35 @@ ou:
 .\start-local.ps1
 ```
 
+## Gerar executavel Windows
+
+Este modo cria um aplicativo desktop para instalar/abrir em outro computador.
+O app abre uma janela propria e inicia o backend internamente.
+
+```bash
+npm install
+npm run dist:win
+```
+
+Os arquivos gerados ficam em:
+
+```text
+release/
+```
+
+Use o instalador `.exe` ou a versao `portable` gerada nessa pasta.
+
+Dados fiscais, certificado e XMLs ficam no perfil do usuario do Windows, na pasta de dados do aplicativo Electron. Eles nao ficam dentro do GitHub.
+
+Depois de instalar em outro computador:
+
+1. Abra o aplicativo `Bicho de Pelo`.
+2. Va em `Configuracao Fiscal`.
+3. Preencha os dados fiscais.
+4. Envie o certificado A1.
+5. Teste a SEFAZ real.
+6. Emita normalmente.
+
 ## Rodar separado em desenvolvimento
 
 Na raiz do projeto:

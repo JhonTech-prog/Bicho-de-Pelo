@@ -8,6 +8,9 @@ const projectDir = path.resolve(serverDir, '..');
 dotenv.config({ path: path.resolve(projectDir, '.env') });
 dotenv.config({ path: path.resolve(serverDir, '.env') });
 
+const isElectron = Boolean(process.versions.electron);
+const electronUserData = process.env.ELECTRON_USER_DATA || '';
+
 function splitCsv(value: string | undefined) {
   return String(value || '')
     .split(',')
@@ -17,8 +20,8 @@ function splitCsv(value: string | undefined) {
 
 export const config = {
   port: Number(process.env.BACKEND_PORT || 3333),
-  dataDir: process.env.DATA_DIR || 'data',
-  staticDir: process.env.STATIC_DIR || 'dist',
+  dataDir: process.env.DATA_DIR || (isElectron && electronUserData ? path.resolve(electronUserData, 'data') : 'data'),
+  staticDir: process.env.STATIC_DIR || (isElectron ? path.resolve(process.resourcesPath, 'dist') : 'dist'),
   allowedOrigins: splitCsv(process.env.ALLOWED_ORIGINS),
   company: {
     name: process.env.COMPANY_NAME || '',
