@@ -27,7 +27,21 @@ const upload = multer({
   },
 });
 
-app.use(cors({ origin: true }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (config.allowedOrigins.length === 0 || config.allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('Origem nao permitida pelo CORS.'));
+  },
+}));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/', (_req, res) => {

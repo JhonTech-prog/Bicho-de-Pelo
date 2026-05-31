@@ -1,13 +1,27 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
-dotenv.config();
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const projectDir = path.resolve(serverDir, '..');
+
+dotenv.config({ path: path.resolve(projectDir, '.env') });
+dotenv.config({ path: path.resolve(serverDir, '.env') });
+
+function splitCsv(value: string | undefined) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 
 export const config = {
   port: Number(process.env.BACKEND_PORT || 3333),
   dataDir: process.env.DATA_DIR || 'data',
+  allowedOrigins: splitCsv(process.env.ALLOWED_ORIGINS),
   company: {
-    name: process.env.COMPANY_NAME || 'BICHO DE PELO',
-    cnpj: process.env.COMPANY_CNPJ || '26614661000109',
+    name: process.env.COMPANY_NAME || '',
+    cnpj: process.env.COMPANY_CNPJ || '',
     stateRegistration: process.env.COMPANY_IE || '',
     cityCode: process.env.COMPANY_CITY_CODE || '2504009',
     cityName: process.env.COMPANY_CITY_NAME || 'Campina Grande',

@@ -1,30 +1,86 @@
 # Bicho de Pelo
 
-Sistema local de caixa e emissao NFC-e para o petshop Bicho de Pelo.
+Sistema local/web de caixa e emissao NFC-e para o petshop Bicho de Pelo.
 
-## O que o sistema faz
+## Estrutura
 
-- Roda um frontend local em `http://localhost:3000`.
-- Roda um backend local em `http://localhost:3333`.
-- Salva configuracao fiscal, certificado A1 e XMLs em `data/`.
-- Valida certificado A1 `.pfx` ou `.p12` no upload.
-- Consulta status real da SEFAZ/SVRS.
-- Assina XML NFC-e.
-- Envia NFC-e para autorizacao real em homologacao/producao.
-- Grava XML autorizado/local em `data/nfce-<numero>.xml` e `data/nfce-<numero>-signed.xml`.
+```text
+.
+├── index.tsx                # frontend React/Vite
+├── index.html
+├── components/              # componentes visuais
+├── services/                # servicos auxiliares do frontend
+├── server/                  # backend Express/SEFAZ
+│   ├── index.ts             # API HTTP
+│   ├── nfceService.ts       # montagem, assinatura e emissao NFC-e
+│   ├── sefazService.ts      # comunicacao SVRS/SEFAZ
+│   ├── certificateService.ts
+│   ├── fiscalConfigService.ts
+│   ├── storage.ts
+│   ├── xmlSigner.ts
+│   ├── package.json
+│   └── .env.example
+├── deploy/
+│   └── nginx-bicho-de-pelo.conf
+├── ecosystem.config.cjs     # PM2
+├── .env.example             # variaveis do frontend
+├── package.json             # frontend + scripts locais
+└── data/                    # NAO versionar: certificado, configs e XMLs
+```
 
-Importante: `data/` fica fora do Git porque contem certificado, senha fiscal, configuracao local e XMLs emitidos.
+## Seguranca
 
-## Rodar localmente
+A pasta `data/` fica fora do Git e deve ser protegida. Ela pode conter:
 
-Pre-requisito: Node.js instalado.
+- certificado A1
+- senha fiscal local
+- configuracao fiscal real
+- XMLs emitidos
+
+Nunca envie `data/`, `.env`, certificados ou XMLs fiscais para GitHub.
+
+## Variaveis de ambiente
+
+Frontend: copie `.env.example` para `.env` quando precisar configurar API externa.
+
+```bash
+cp .env.example .env
+```
+
+Exemplo:
+
+```env
+VITE_API_URL=https://app.seudominio.com/api
+```
+
+Em desenvolvimento local, pode deixar `VITE_API_URL` vazio. O Vite usa proxy para `/api`.
+
+Backend: copie `server/.env.example` para `server/.env`.
+
+```bash
+cp server/.env.example server/.env
+```
+
+Configure no servidor:
+
+```env
+BACKEND_PORT=3333
+DATA_DIR=data
+ALLOWED_ORIGINS=http://localhost:3000,https://app.seudominio.com
+```
+
+Os dados fiscais tambem podem ser preenchidos pela tela `Configuracao Fiscal`.
+
+## Instalar e rodar em desenvolvimento
+
+Na raiz do projeto:
 
 ```bash
 npm install
 npm run dev:all
 ```
 
-Abra:
+Frontend:
 
 ```text
 http://localhost:3000
@@ -36,32 +92,186 @@ Backend:
 http://localhost:3333/api/health
 ```
 
-## Configuracao fiscal
+Rodar apenas frontend:
 
-Na tela `Configuracao Fiscal`, preencha:
+```bash
+npm run dev
+```
 
-- Razao social
-- CNPJ
-- Inscricao Estadual
-- Codigo IBGE do municipio
-- Regime tributario
-- CSC
-- ID CSC
-- Serie NFC-e
-- Proximo numero NFC-e
-- Ambiente: local, homologacao ou producao
-- Certificado A1 `.pfx` ou `.p12`
+Rodar apenas backend pela raiz:
 
-O sistema valida o certificado no upload:
+```bash
+npm run start
+```
 
-- Confere se o arquivo abre com a senha informada.
-- Confere se existe certificado e chave privada.
-- Confere se a chave privada corresponde ao certificado.
-- Confere se o certificado esta dentro da validade.
+Rodar backend pela pasta `server/`:
 
-## Produtos cadastrados
+```bash
+cd server
+npm install
+npm run dev
+npm start
+```
 
-Os produtos do caixa ja incluem NCM, CFOP e unidade para emissao:
+## Build do frontend
+
+```bash
+npm run build
+```
+
+O build fica em:
+
+```text
+dist/
+```
+
+## Deploy simples com dominio
+
+Arquitetura recomendada:
+
+```text
+Internet -> Dominio -> Nginx HTTPS -> frontend dist/
+                               └── /api -> backend Node na porta 3333
+```
+
+### 1. Preparar servidor/VPS
+
+Instale Node.js LTS, Git, Nginx, PM2 e Certbot.
+
+Ubuntu/Debian:
+
+```bash
+sudo apt update
+sudo apt install -y git nginx certbot python3-certbot-nginx
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g pm2
+```
+
+### 2. Baixar projeto
+
+```bash
+sudo mkdir -p /var/www
+sudo chown -R $USER:$USER /var/www
+cd /var/www
+git clone https://github.com/JhonTech-prog/Bicho-de-Pelo.git bicho-de-pelo
+cd bicho-de-pelo
+npm install
+```
+
+### 3. Configurar ambiente
+
+```bash
+cp .env.example .env
+cp server/.env.example server/.env
+```
+
+No `.env`:
+
+```env
+VITE_API_URL=https://app.seudominio.com/api
+```
+
+No `server/.env`:
+
+```env
+BACKEND_PORT=3333
+DATA_DIR=data
+ALLOWED_ORIGINS=https://app.seudominio.com
+```
+
+### 4. Build frontend
+
+```bash
+npm run build
+```
+
+### 5. Subir backend com PM2
+
+```bash
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup
+```
+
+### 6. Configurar Nginx
+
+Copie o exemplo:
+
+```bash
+sudo cp deploy/nginx-bicho-de-pelo.conf /etc/nginx/sites-available/bicho-de-pelo
+sudo nano /etc/nginx/sites-available/bicho-de-pelo
+```
+
+Troque `app.seudominio.com` pelo dominio real.
+
+Ative:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/bicho-de-pelo /etc/nginx/sites-enabled/bicho-de-pelo
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 7. HTTPS com Certbot
+
+```bash
+sudo certbot --nginx -d app.seudominio.com
+```
+
+### 8. DNS do dominio
+
+No painel do dominio, crie um registro:
+
+```text
+Tipo: A
+Nome: app
+Valor: IP_PUBLICO_DO_SERVIDOR
+```
+
+Ou use o dominio raiz:
+
+```text
+Tipo: A
+Nome: @
+Valor: IP_PUBLICO_DO_SERVIDOR
+```
+
+## Computador local como servidor
+
+Se o backend rodar em um computador local e voce quiser acesso externo pelo dominio, use uma destas opcoes:
+
+- redirecionamento de portas no roteador para o computador servidor
+- IP fixo ou DDNS
+- proxy/tunel seguro como Cloudflare Tunnel, Tailscale Funnel ou similar
+
+Opcao mais simples e segura para loja: VPS pequena com Nginx + PM2 + HTTPS.
+
+## GitHub
+
+Primeiro envio:
+
+```bash
+git init
+git add .
+git commit -m "primeiro commit"
+git branch -M main
+git remote add origin URL_DO_REPOSITORIO
+git push -u origin main
+```
+
+Atualizacoes:
+
+```bash
+git status
+git add .
+git commit -m "descreva a alteracao"
+git push
+```
+
+## NFC-e e produtos
+
+Produtos cadastrados atualmente:
 
 - Produtos de banho pet: NCM `33079000`, CFOP `5102`
 - Produtos banho e tosa pet: NCM `33079000`, CFOP `5102`
@@ -72,115 +282,4 @@ Os produtos do caixa ja incluem NCM, CFOP e unidade para emissao:
 - Racao caes/gatos 10kg: NCM `23091000`, CFOP `5102`
 - Racao Golden 15kg: NCM `23091000`, CFOP `5102`
 
-## Instalar no computador servidor
-
-Este computador sera o caixa/servidor local. Os outros computadores acessam pelo IP dele.
-
-1. Instale o Node.js LTS:
-
-   ```text
-   https://nodejs.org/
-   ```
-
-2. Baixe o projeto:
-
-   ```bash
-   git clone https://github.com/JhonTech-prog/Bicho-de-Pelo.git
-   cd Bicho-de-Pelo
-   npm install
-   ```
-
-3. Inicie o sistema:
-
-   ```bash
-   npm run dev:all
-   ```
-
-4. No computador servidor, abra:
-
-   ```text
-   http://localhost:3000
-   ```
-
-5. Nos outros computadores da rede, abra usando o IP do servidor:
-
-   ```text
-   http://IP-DO-SERVIDOR:3000
-   ```
-
-   Exemplo:
-
-   ```text
-   http://192.168.1.138:3000
-   ```
-
-6. Libere as portas no Firewall do Windows, se outro computador nao conseguir acessar:
-
-   ```powershell
-   New-NetFirewallRule -DisplayName "Bicho de Pelo Frontend 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow
-   New-NetFirewallRule -DisplayName "Bicho de Pelo Backend 3333" -Direction Inbound -Protocol TCP -LocalPort 3333 -Action Allow
-   ```
-
-7. Configure a parte fiscal pela tela `Configuracao Fiscal`:
-
-   - Preencha empresa, IE, CSC, ID CSC, serie e proximo numero.
-   - Envie o certificado A1.
-   - Clique em `Testar SEFAZ Real`.
-   - Para emissao real, selecione `Producao`.
-
-8. Teste uma venda pequena.
-
-   Se a nota for autorizada, o cupom deve mostrar:
-
-   - `AUTORIZADA`
-   - Protocolo SEFAZ
-   - Chave de acesso
-   - QR Code da SEFAZ-PB
-
-## Manter o servidor ligado
-
-Para operacao diaria simples:
-
-1. Ligue o computador servidor.
-2. Abra o PowerShell na pasta do projeto.
-3. Rode:
-
-   ```bash
-   npm run dev:all
-   ```
-
-4. Deixe a janela aberta enquanto o caixa estiver usando o sistema.
-
-Para iniciar automaticamente com o Windows, crie uma tarefa no Agendador de Tarefas:
-
-- Programa: `powershell.exe`
-- Argumentos:
-
-  ```powershell
-  -NoExit -ExecutionPolicy Bypass -Command "cd 'C:\CAMINHO\Bicho-de-Pelo'; npm run dev:all"
-  ```
-
-Troque `C:\CAMINHO\Bicho-de-Pelo` pela pasta real do projeto no servidor.
-
-## Backup
-
-Faca backup periodico da pasta:
-
-```text
-data/
-```
-
-Ela contem:
-
-- Certificado A1 salvo
-- Senha fiscal local
-- Configuracao fiscal
-- XMLs das NFC-e emitidas
-
-Nao envie essa pasta para GitHub, WhatsApp ou e-mail comum.
-
-## Observacoes fiscais
-
-- Em `producao`, uma NFC-e autorizada pela SEFAZ e documento fiscal real.
-- O sistema usa a URL atual de QR Code da SEFAZ-PB: `http://www.sefaz.pb.gov.br/nfce`.
-- Rejeicoes da SEFAZ aparecem na tela para correcao dos dados fiscais/produtos.
+Em `producao`, uma NFC-e autorizada pela SEFAZ e documento fiscal real.

@@ -11,6 +11,21 @@ node_modules
 dist
 dist-ssr
 data
+.env
+.env.*
+!.env.example
+!server/.env.example
+*.db
+*.sqlite
+*.sqlite3
+*.pfx
+*.p12
+*.pem
+*.key
+*.crt
+*.cer
+*.tmp
+*.temp
 *.local
 
 # Editor directories and files

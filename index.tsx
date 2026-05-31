@@ -93,8 +93,11 @@ const readStorage = <T,>(key: string, fallback: T): T => {
   }
 };
 
+const API_URL = String((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+const apiUrl = (path: string) => `${API_URL}${path}`;
+
 const emitNfce = async (items: SaleItem[], total: number, amountReceived: number) => {
-  const response = await fetch('/api/nfce/emit', {
+  const response = await fetch(apiUrl('/api/nfce/emit'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ items, total, amountReceived }),
@@ -302,7 +305,7 @@ const FiscalConfigView = ({ onCertificateLoaded }: { onCertificateLoaded: () => 
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    fetch('/api/config/fiscal')
+    fetch(apiUrl('/api/config/fiscal'))
       .then((response) => response.json())
       .then((data) => {
         setConfig({ ...EMPTY_FISCAL_CONFIG, ...data });
@@ -320,7 +323,7 @@ const FiscalConfigView = ({ onCertificateLoaded }: { onCertificateLoaded: () => 
     setSaving(true);
     setMessage('');
     try {
-      const response = await fetch('/api/config/fiscal', {
+      const response = await fetch(apiUrl('/api/config/fiscal'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
@@ -350,7 +353,7 @@ const FiscalConfigView = ({ onCertificateLoaded }: { onCertificateLoaded: () => 
       formData.append('certificate', certificateFile);
       formData.append('password', certificatePassword);
 
-      const response = await fetch('/api/config/certificate', {
+      const response = await fetch(apiUrl('/api/config/certificate'), {
         method: 'POST',
         body: formData,
       });
@@ -376,7 +379,7 @@ const FiscalConfigView = ({ onCertificateLoaded }: { onCertificateLoaded: () => 
     setTestingSefaz(true);
     setMessage('');
     try {
-      const response = await fetch('/api/sefaz/status');
+      const response = await fetch(apiUrl('/api/sefaz/status'));
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
