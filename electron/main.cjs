@@ -10,11 +10,14 @@ async function startBackend() {
   process.env.ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS || 'http://localhost:3333';
 
   const serverEntry = app.isPackaged
-    ? path.join(process.resourcesPath, 'server', 'index.ts')
+    ? path.join(process.resourcesPath, 'server', 'index.js')
     : path.join(__dirname, '..', 'server', 'index.ts');
 
-  const tsx = await import('tsx/esm/api');
-  const unregister = tsx.register();
+  if (!app.isPackaged) {
+    const tsx = await import('tsx/esm/api');
+    tsx.register();
+  }
+
   await import(pathToFileURL(serverEntry).href);
 }
 
