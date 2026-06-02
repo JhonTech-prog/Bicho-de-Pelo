@@ -1,7 +1,7 @@
 {
   "name": "bicho-de-pelo---emissor-fiscal-campina-grande",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.5",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -10,7 +10,8 @@
     "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev\"",
     "build": "vite build",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=build/server/index.js",
-    "build:desktop": "npm run build && npm run build:server",
+    "prepare:server:prod": "npm --prefix server install --omit=dev",
+    "build:desktop": "npm run build && npm run build:server && npm run prepare:server:prod",
     "electron": "npm run build && electron .",
     "dist:win": "npm run build:desktop && electron-builder --win",
     "serve:local": "npm run build && npm run start",
@@ -63,7 +64,28 @@
       {
         "from": "build/server",
         "to": "server"
+      },
+      {
+        "from": "server/package.json",
+        "to": "server/package.json"
+      },
+      {
+        "from": "server/package-lock.json",
+        "to": "server/package-lock.json"
+      },
+      {
+        "from": "server/node_modules",
+        "to": "server/node_modules",
+        "filter": [
+          "**/*",
+          "!**/.cache/**",
+          "!**/*.log"
+        ]
       }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "server/**/*"
     ],
     "win": {
       "target": [
